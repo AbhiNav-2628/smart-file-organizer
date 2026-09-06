@@ -1,4 +1,5 @@
 import tkinter as tk
+import sys
 from tkinter import filedialog, messagebox, simpledialog
 from pathlib import Path
 import json
@@ -10,7 +11,14 @@ from datetime import datetime
 # FILE PATHS
 # ============================================================
 
-BASE_DIR = Path(__file__).resolve().parent
+# Detect whether the application is running as Python
+# or as a PyInstaller executable.
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys.executable).resolve().parent
+    APP_FILE = Path(sys.executable).resolve()
+else:
+    BASE_DIR = Path(__file__).resolve().parent
+    APP_FILE = Path(__file__).resolve()
 
 CATEGORIES_FILE = BASE_DIR / "categories.json"
 LOG_FILE = BASE_DIR / "organizer_log.txt"
@@ -22,6 +30,7 @@ BACKUP_FOLDER = BASE_DIR / ".organizer_backups"
 # ============================================================
 
 DEFAULT_CATEGORIES = {
+
     # Documents
     ".txt": "Documents",
     ".pdf": "Documents",
@@ -129,10 +138,23 @@ DEFAULT_CATEGORIES = {
 # ============================================================
 
 def save_categories(data):
+
     try:
-        with open(CATEGORIES_FILE, "w", encoding="utf-8") as file:
-            json.dump(data, file, indent=4)
+
+        with open(
+            CATEGORIES_FILE,
+            "w",
+            encoding="utf-8"
+        ) as file:
+
+            json.dump(
+                data,
+                file,
+                indent=4
+            )
+
     except Exception as error:
+
         messagebox.showerror(
             "Categories Error",
             f"Could not save categories.json:\n\n{error}"
@@ -140,7 +162,9 @@ def save_categories(data):
 
 
 def load_categories():
+
     try:
+
         if CATEGORIES_FILE.exists():
 
             with open(
@@ -148,17 +172,19 @@ def load_categories():
                 "r",
                 encoding="utf-8"
             ) as file:
+
                 data = json.load(file)
 
             if isinstance(data, dict):
 
-                # Preserve user's existing mappings.
-                # Only add defaults that are missing.
                 changed = False
 
+                # Preserve user's existing mappings.
+                # Only add missing defaults.
                 for extension, category in DEFAULT_CATEGORIES.items():
 
                     if extension not in data:
+
                         data[extension] = category
                         changed = True
 
@@ -216,6 +242,7 @@ def get_file_date(file_path):
         stat = file_path.stat()
 
         if hasattr(stat, "st_birthtime"):
+
             return datetime.fromtimestamp(
                 stat.st_birthtime
             )
@@ -267,7 +294,7 @@ def is_protected_file(file_path):
             LOG_FILE.resolve(),
             CATEGORIES_FILE.resolve(),
             BACKUP_FOLDER.resolve(),
-            Path(__file__).resolve()
+            APP_FILE.resolve()
         }
 
         # Directly protected files
@@ -333,6 +360,7 @@ def log_message(message):
             )
 
     except Exception:
+
         pass
 
 
@@ -360,17 +388,21 @@ def read_last_run():
 
             lines = file.readlines()
 
+        moved_items = []
+        backup_items = []
+        undone_items = set()
+
+        # Read only the latest run.
         for line in reversed(lines):
 
             line = line.strip()
 
-            # Stop at the beginning of the latest run
             if line == "RUN START":
                 break
 
-            # -----------------------------------------------
+            # ------------------------------------------------
             # MOVED
-            # -----------------------------------------------
+            # ------------------------------------------------
 
             if line.startswith("MOVED | "):
 
@@ -389,7 +421,7 @@ def read_last_run():
                         parts[2]
                     )
 
-                    result["moved"].insert(
+                    moved_items.insert(
                         0,
                         (
                             source,
@@ -397,9 +429,9 @@ def read_last_run():
                         )
                     )
 
-            # -----------------------------------------------
+            # ------------------------------------------------
             # BACKUP
-            # -----------------------------------------------
+            # ------------------------------------------------
 
             elif line.startswith("BACKUP | "):
 
@@ -418,7 +450,7 @@ def read_last_run():
                         parts[2]
                     )
 
-                    result["backups"].insert(
+                    backup_items.insert(
                         0,
                         (
                             destination,
@@ -426,7 +458,66 @@ def read_last_run():
                         )
                     )
 
+            # ------------------------------------------------
+            # UNDONE
+            # ------------------------------------------------
+
+            elif line.startswith("UNDONE | "):
+
+                parts = line.split(
+                    " | ",
+                    2
+                )
+
+                if len(parts) == 3:
+
+                    source = parts[1]
+                    destination = parts[2]
+
+                    undone_items.add(
+                        (
+                            source,
+                            destination
+                        )
+                    )
+
+        # Remove items already selectively undone.
+        for source, destination in moved_items:
+
+            key = (
+                str(source),
+                str(destination)
+            )
+
+            if key not in undone_items:
+
+                result["moved"].append(
+                    (
+                        source,
+                        destination
+                    )
+                )
+
+        # Only keep backups belonging to
+        # files that are still restorable.
+        active_destinations = {
+            str(destination)
+            for source, destination in result["moved"]
+        }
+
+        for destination, backup in backup_items:
+
+            if str(destination) in active_destinations:
+
+                result["backups"].append(
+                    (
+                        destination,
+                        backup
+                    )
+                )
+
     except Exception:
+
         pass
 
     return result
@@ -447,22 +538,24 @@ def has_restorable_files():
 
 
 # ============================================================
-# UPDATE UNDO BUTTON
+# UPDATE UNDO BUTTONS
 # ============================================================
 
 def update_undo_button_state():
 
-    if has_restorable_files():
+    state = (
+        "normal"
+        if has_restorable_files()
+        else "disabled"
+    )
 
-        undo_button.config(
-            state="normal"
-        )
+    undo_button.config(
+        state=state
+    )
 
-    else:
-
-        undo_button.config(
-            state="disabled"
-        )
+    selective_undo_button.config(
+        state=state
+    )
 
 
 # ============================================================
@@ -498,9 +591,6 @@ def select_folder():
         state="normal"
     )
 
-    # IMPORTANT:
-    # Selecting a folder must NOT automatically
-    # disable Undo.
     update_undo_button_state()
 
 
@@ -547,11 +637,13 @@ def organize_files():
 
         return
 
-    # Get only files in the selected folder.
-    # Subfolders are not scanned.
+    # Only files directly inside selected folder.
     files = [
+
         file_path
+
         for file_path in selected_folder.iterdir()
+
         if file_path.is_file()
         and not is_protected_file(file_path)
     ]
@@ -621,10 +713,6 @@ def organize_files():
         True,
         True
     )
-
-    # ========================================================
-    # MAIN FRAME
-    # ========================================================
 
     main_frame = tk.Frame(
         preview_window,
@@ -732,9 +820,6 @@ def organize_files():
         pady=8
     )
 
-    # Expandable section.
-    # It uses available space without pushing
-    # the buttons off-screen.
     details_frame.pack(
         fill="both",
         expand=True,
@@ -810,9 +895,6 @@ def organize_files():
     # BUTTON FRAME
     # ========================================================
 
-    # IMPORTANT:
-    # This frame is outside the expanding details area.
-    # Therefore these buttons remain visible.
     button_frame = tk.Frame(
         main_frame
     )
@@ -1034,58 +1116,34 @@ def perform_organization(preview):
 
 
 # ============================================================
-# UNDO
+# RESTORE SELECTED ITEMS
 # ============================================================
 
-def undo_last_run():
+def undo_items(selected_items):
 
     last_run = read_last_run()
 
-    moved_items = last_run["moved"]
+    backup_lookup = {
 
-    backup_items = last_run["backups"]
+        destination.resolve(): backup
 
-    if not moved_items and not backup_items:
-
-        messagebox.showinfo(
-            "Undo",
-            "There is nothing to undo."
-        )
-
-        update_undo_button_state()
-
-        return
-
-    confirm = messagebox.askyesno(
-        "Undo Last Run",
-
-        "Undo the last organization run?\n\n"
-        "All files from the last run will be restored."
-    )
-
-    if not confirm:
-        return
+        for destination, backup
+        in last_run["backups"]
+    }
 
     restored = 0
     already_restored = 0
     failed = 0
 
-    # ========================================================
-    # RESTORE MOVED FILES
-    # ========================================================
-
-    for (
-        source,
-        destination
-    ) in reversed(moved_items):
+    for source, destination in selected_items:
 
         try:
 
-            # Destination no longer exists.
+            # If destination is already gone,
+            # it has probably already been restored.
             if not destination.exists():
 
                 already_restored += 1
-
                 continue
 
             source.parent.mkdir(
@@ -1097,50 +1155,63 @@ def undo_last_run():
             if source.exists():
 
                 failed += 1
-
                 continue
+
+            # ------------------------------------------------
+            # MOVE NEW FILE BACK TO ORIGINAL LOCATION
+            # ------------------------------------------------
 
             shutil.move(
                 str(destination),
                 str(source)
             )
 
+            # ------------------------------------------------
+            # RESTORE ORIGINAL FILE IF REPLACEMENT OCCURRED
+            # ------------------------------------------------
+
+            backup = backup_lookup.get(
+                destination.resolve()
+            )
+
+            if backup and backup.exists():
+
+                destination.parent.mkdir(
+                    parents=True,
+                    exist_ok=True
+                )
+
+                if destination.exists():
+
+                    destination.unlink()
+
+                shutil.move(
+                    str(backup),
+                    str(destination)
+                )
+
+            # ------------------------------------------------
+            # RECORD SELECTIVE UNDO
+            # ------------------------------------------------
+
+            log_message(
+                f"UNDONE | "
+                f"{source} | "
+                f"{destination}"
+            )
+
             restored += 1
 
-        except Exception:
+        except Exception as error:
 
             failed += 1
 
-    # ========================================================
-    # RESTORE BACKUPS
-    # ========================================================
-
-    for (
-        destination,
-        backup
-    ) in reversed(backup_items):
-
-        try:
-
-            if not backup.exists():
-                continue
-
-            destination.parent.mkdir(
-                parents=True,
-                exist_ok=True
+            log_message(
+                f"UNDO FAILED | "
+                f"{source} | "
+                f"{destination} | "
+                f"{error}"
             )
-
-            if destination.exists():
-                destination.unlink()
-
-            shutil.move(
-                str(backup),
-                str(destination)
-            )
-
-        except Exception:
-
-            failed += 1
 
     # ========================================================
     # REMOVE EMPTY BACKUP FOLDER
@@ -1159,6 +1230,7 @@ def undo_last_run():
                 BACKUP_FOLDER.rmdir()
 
     except Exception:
+
         pass
 
     update_undo_button_state()
@@ -1169,6 +1241,326 @@ def undo_last_run():
         f"Files restored: {restored}\n"
         f"Already restored: {already_restored}\n"
         f"Failed: {failed}"
+    )
+
+
+# ============================================================
+# SELECTIVE UNDO
+# ============================================================
+
+def selective_undo():
+
+    last_run = read_last_run()
+
+    moved_items = last_run["moved"]
+
+    if not moved_items:
+
+        messagebox.showinfo(
+            "Selective Undo",
+            "There are no files available for selective undo."
+        )
+
+        update_undo_button_state()
+
+        return
+
+    # ========================================================
+    # CREATE WINDOW
+    # ========================================================
+
+    undo_window = tk.Toplevel(
+        root
+    )
+
+    undo_window.title(
+        "Selective Undo"
+    )
+
+    undo_window.geometry(
+        "700x550"
+    )
+
+    undo_window.minsize(
+        600,
+        450
+    )
+
+    undo_window.resizable(
+        True,
+        True
+    )
+
+    main_frame = tk.Frame(
+        undo_window,
+        padx=15,
+        pady=15
+    )
+
+    main_frame.pack(
+        fill="both",
+        expand=True
+    )
+
+    # ========================================================
+    # TITLE
+    # ========================================================
+
+    tk.Label(
+        main_frame,
+        text="Selective Undo",
+        font=("Arial", 18, "bold")
+    ).pack(
+        anchor="w"
+    )
+
+    tk.Label(
+        main_frame,
+        text="Select the files you want to restore.",
+        font=("Arial", 10)
+    ).pack(
+        anchor="w",
+        pady=(2, 10)
+    )
+
+    # ========================================================
+    # FILE LIST
+    # ========================================================
+
+    list_frame = tk.Frame(
+        main_frame
+    )
+
+    list_frame.pack(
+        fill="both",
+        expand=True
+    )
+
+    scrollbar = tk.Scrollbar(
+        list_frame,
+        orient="vertical"
+    )
+
+    undo_list = tk.Listbox(
+        list_frame,
+        selectmode=tk.MULTIPLE,
+        yscrollcommand=scrollbar.set
+    )
+
+    scrollbar.config(
+        command=undo_list.yview
+    )
+
+    undo_list.pack(
+        side="left",
+        fill="both",
+        expand=True
+    )
+
+    scrollbar.pack(
+        side="right",
+        fill="y"
+    )
+
+    # ========================================================
+    # AVAILABLE ITEMS
+    # ========================================================
+
+    available_items = []
+
+    for source, destination in moved_items:
+
+        if destination.exists():
+
+            available_items.append(
+                (
+                    source,
+                    destination
+                )
+            )
+
+            undo_list.insert(
+                tk.END,
+                f"{source.name}  →  {source.parent}"
+            )
+
+    if not available_items:
+
+        tk.Label(
+            main_frame,
+            text="All files from the latest run have already been restored.",
+            font=("Arial", 10)
+        ).pack(
+            pady=10
+        )
+
+    # ========================================================
+    # SELECT ALL
+    # ========================================================
+
+    def select_all():
+
+        if undo_list.size() > 0:
+
+            undo_list.selection_set(
+                0,
+                tk.END
+            )
+
+    # ========================================================
+    # CLEAR
+    # ========================================================
+
+    def clear_selection():
+
+        undo_list.selection_clear(
+            0,
+            tk.END
+        )
+
+    # ========================================================
+    # UNDO SELECTED
+    # ========================================================
+
+    def undo_selected():
+
+        selection = undo_list.curselection()
+
+        if not selection:
+
+            messagebox.showwarning(
+                "No Selection",
+                "Please select at least one file.",
+                parent=undo_window
+            )
+
+            return
+
+        selected_items = [
+
+            available_items[index]
+
+            for index in selection
+        ]
+
+        confirm = messagebox.askyesno(
+            "Confirm Selective Undo",
+
+            f"Restore {len(selected_items)} selected file(s)?",
+
+            parent=undo_window
+        )
+
+        if not confirm:
+            return
+
+        undo_window.destroy()
+
+        undo_items(
+            selected_items
+        )
+
+    # ========================================================
+    # BUTTON FRAME
+    # ========================================================
+
+    button_frame = tk.Frame(
+        main_frame
+    )
+
+    button_frame.pack(
+        fill="x",
+        pady=(10, 0)
+    )
+
+    tk.Button(
+        button_frame,
+        text="SELECT ALL",
+        width=14,
+        command=select_all
+    ).pack(
+        side="left",
+        padx=(0, 8)
+    )
+
+    tk.Button(
+        button_frame,
+        text="CLEAR",
+        width=14,
+        command=clear_selection
+    ).pack(
+        side="left",
+        padx=(0, 8)
+    )
+
+    tk.Button(
+        button_frame,
+        text="UNDO SELECTED",
+        width=16,
+        command=undo_selected
+    ).pack(
+        side="left",
+        padx=(0, 8)
+    )
+
+    tk.Button(
+        button_frame,
+        text="CANCEL",
+        width=14,
+        command=undo_window.destroy
+    ).pack(
+        side="left"
+    )
+
+    undo_window.transient(
+        root
+    )
+
+    undo_window.grab_set()
+
+
+# ============================================================
+# UNDO LAST RUN
+# ============================================================
+
+def undo_last_run():
+
+    last_run = read_last_run()
+
+    moved_items = last_run["moved"]
+
+    if not moved_items:
+
+        messagebox.showinfo(
+            "Undo",
+            "There is nothing to undo."
+        )
+
+        update_undo_button_state()
+
+        return
+
+    confirm = messagebox.askyesno(
+        "Undo Last Run",
+
+        "Undo the remaining files from the last organization run?\n\n"
+        "Files already restored will remain restored."
+    )
+
+    if not confirm:
+        return
+
+    undo_items(
+        [
+            (
+                source,
+                destination
+            )
+
+            for source, destination in moved_items
+
+            if destination.exists()
+        ]
     )
 
 
@@ -1205,6 +1597,10 @@ def open_settings():
         fill="both",
         expand=True
     )
+
+    # ========================================================
+    # TITLE
+    # ========================================================
 
     tk.Label(
         main_frame,
@@ -1297,13 +1693,15 @@ def open_settings():
         extension = extension.strip().lower()
 
         if not extension.startswith("."):
+
             extension = "." + extension
 
         if extension in categories:
 
             messagebox.showwarning(
                 "Already Exists",
-                f"{extension} already exists."
+                f"{extension} already exists.",
+                parent=settings_window
             )
 
             return
@@ -1343,7 +1741,8 @@ def open_settings():
 
             messagebox.showwarning(
                 "No Selection",
-                "Please select an extension to remove."
+                "Please select an extension to remove.",
+                parent=settings_window
             )
 
             return
@@ -1358,7 +1757,8 @@ def open_settings():
 
         confirm = messagebox.askyesno(
             "Remove Extension",
-            f"Remove {extension}?"
+            f"Remove {extension}?",
+            parent=settings_window
         )
 
         if not confirm:
@@ -1658,6 +2058,19 @@ undo_button = tk.Button(
 
 undo_button.pack(
     side="left"
+)
+
+selective_undo_button = tk.Button(
+    action_frame,
+    text="SELECTIVE UNDO",
+    width=20,
+    command=selective_undo,
+    state="disabled"
+)
+
+selective_undo_button.pack(
+    side="left",
+    padx=(10, 0)
 )
 
 

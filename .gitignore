@@ -8,3 +8,11 @@ tests/
 organizer_log.txt
 
 .vscode/
+# PyInstaller
+build/
+dist/
+*.spec
+
+# Release packages
+SmartFileOrganizer-V2.0-Windows/
+SmartFileOrganizer-V2.0-Windows.zip

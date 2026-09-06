@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+
+.organizer_backups/
+
+tests/
+
+organizer_log.txt
+
+.vscode/
